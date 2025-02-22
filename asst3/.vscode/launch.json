@@ -1,0 +1,31 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Debug C++ with GDB",
+        "type": "cppdbg",
+        "request": "launch",
+        "program": "/home/xm/parallel/asst3/render/render",  // 直接指向已生成的可执行文件
+        "args": ["-r", "cpuref", "rgb"],  // 可选参数，传递给程序
+        "stopAtEntry": false,  // 设置是否在程序入口处停下来
+        "cwd": "${workspaceFolder}",  // 当前工作目录
+        "environment": [],
+        "externalConsole": false,  // 如果为 true，将在外部控制台中运行
+        "MIMode": "gdb",  // 使用 GDB 调试
+        "miDebuggerPath": "/usr/bin/gdb",  // GDB 的路径
+        "setupCommands": [
+          {
+            "description": "Enable pretty-printing for GDB",
+            "text": "-enable-pretty-printing",
+            "ignoreFailures": false
+          }
+        ],
+        "logging": {
+          "moduleLoad": false,
+          "trace": false,
+          "engineLogging": false
+        }
+      }
+    ]
+  }
+  
