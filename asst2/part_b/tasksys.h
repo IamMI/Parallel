@@ -80,19 +80,24 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
 class TaskContext {
     public:
         TaskContext(int task_id, std::vector<TaskID> deps, IRunnable* runnable, int num_total_tasks): 
-            m_task_ids{task_id}, m_deps{deps}, m_runnable{runnable}, m_num_tasks{num_total_tasks}
-        {
-            is_finished = false;
-        }
+            m_num_tasks{num_total_tasks}, m_left_tasks{num_total_tasks}, m_finish_tasks{0}, \
+            is_finished{false}, \
+            m_context_ids{task_id}, m_deps{deps}, m_runnable{runnable}
+        {}
         ~TaskContext() {}
-        int m_num_tasks{0};
-        int m_task_ids;
-        std::condition_variable m_cv;
-        std::mutex m_mtx;
-        bool is_finished{false};
-        std::thread m_thread;
-        std::vector<TaskID> m_deps;
-        IRunnable* m_runnable;
+        const int m_num_tasks{0};               // Number of total tasks
+        int m_left_tasks{0};                    // Number of left tasks
+        int m_finish_tasks{0};                  // Number of finished tasks
+        bool is_finished{false};                // Indicate whether context is done    
+
+        TaskID m_context_ids;                   // Context Id
+        std::vector<TaskID> m_deps;             // Context's dependencies    
+
+        std::condition_variable m_cv;           // Conditional variable to notify other contexts
+        std::mutex m_mtx;                       // Mutex to protect data
+
+        std::thread m_thread;                   // Thread to carry out task
+        IRunnable* m_runnable;                  // Runnable program
 };
 
 
@@ -108,20 +113,17 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         void worker();
         int m_max_threads{0};
     private:
-        std::atomic<int> next_task_id{0};           // 用于标志下一个任务的id
-        std::vector<std::thread> worker_pool;       // 用于存放线程池
-        bool stop{false};                           // 用于标志线程池是否停止
-        
-        std::mutex m_tasks;                         // 用于唤醒runAsyncWithDeps的线程
-        std::mutex m_work;                          // 用于唤醒worker进行工作
-        std::mutex m_finish;                        // 用于唤醒run函数，表示所有子任务完成
-        IRunnable* runner;                          // 用于标志当前任务
-        int m_left_num{0};                          // 用于标志剩余任务数
-        int m_total_num{0};                         // 用于标志总任务数
-        int m_finished_num{0};                      // 用于标志已完成任务数
+        std::atomic<int> next_task_id{0};           // Symbol of next task Id
+        TaskContext* task_contexts[10000];           // TaskContexts
+        std::vector<TaskContext*> runnable_contexts;// Runnable contexts
+        std::atomic<int> m_num_contexts{0};         // Number of total contexts
+        // std::atomic<int> m_left_task_total{0};      // Number of total left tasks
 
-        std::condition_variable cv_work, cv_finish; // 用于唤醒线程
-        std::vector<TaskContext*> task_contexts;    // 用于存放任务上下文
+        std::vector<std::thread> worker_pool;       // Threads pool
+        bool stop{false};                           // Indicate whether to stop
+        
+        std::mutex m_work;                          // Mutex to protect data
+        std::condition_variable cv_work, cv_finish; // To notify task_context->m_thread and run
 };
 
 #endif

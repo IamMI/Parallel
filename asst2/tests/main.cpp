@@ -85,7 +85,7 @@ int main(int argc, char** argv)
         strictGraphDepsMedium,
         strictGraphDepsLarge,
     };
-
+    
     std::string test_names[n_tests] = {
         "simple_test_sync",
         "simple_test_async",
@@ -165,7 +165,7 @@ int main(int argc, char** argv)
 
         for (int i = 0; i < N_TASKSYS_IMPLS; i++) {
             double minT = 1e30;
-            for (int j = 0; j < num_timing_iterations; j++) {
+            for (int j = num_timing_iterations-1; j < num_timing_iterations; j++) {
                 
                 // Create a new task system
                 ITaskSystem *t = selectTaskSystemRefImpl(num_threads, (TaskSystemType) i);

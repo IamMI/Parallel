@@ -1,6 +1,5 @@
 {
     "files.associations": {
-        "thread": "cpp",
         "array": "cpp",
         "atomic": "cpp",
         "bit": "cpp",
@@ -15,6 +14,7 @@
         "cstdint": "cpp",
         "cstdio": "cpp",
         "cstdlib": "cpp",
+        "cstring": "cpp",
         "ctime": "cpp",
         "cwchar": "cpp",
         "cwctype": "cpp",
@@ -50,8 +50,7 @@
         "sstream": "cpp",
         "stdexcept": "cpp",
         "streambuf": "cpp",
-        "typeinfo": "cpp",
-        "cstring": "cpp",
-        "cinttypes": "cpp"
+        "thread": "cpp",
+        "typeinfo": "cpp"
     }
 }

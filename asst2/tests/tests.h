@@ -589,8 +589,8 @@ TestResults simpleTestAsync(ITaskSystem* t) {
 TestResults pingPongTest(ITaskSystem* t, bool equal_work, bool do_async,
                          int num_elements, int base_iters) {
 
-    int num_tasks = 64;
-    int num_bulk_task_launches = 400;   
+    int num_tasks = 64;              
+    int num_bulk_task_launches = 400;     
 
     int* input = new int[num_elements];
     int* output = new int[num_elements];
@@ -625,7 +625,6 @@ TestResults pingPongTest(ITaskSystem* t, bool equal_work, bool do_async,
             if (i > 0) {
                 deps.push_back(prev_task_id);
             }
-            // std::cout << "Launching task " << i << std::endl;
             prev_task_id = t->runAsyncWithDeps(
                 runnables[i], num_tasks, deps);
             
@@ -657,7 +656,7 @@ TestResults pingPongTest(ITaskSystem* t, bool equal_work, bool do_async,
         if (buffer[i] != expected) {
             results.passed = false;
             printf("%d: %d expected=%d\n", i, buffer[i], expected);
-            break;
+            // break;
         }
     }
     results.time = end_time - start_time;
@@ -707,7 +706,7 @@ TestResults pingPongUnequalTest(ITaskSystem* t) {
 }
 
 TestResults pingPongEqualAsyncTest(ITaskSystem* t) {
-    int num_elements = 512 * 1024;
+    int num_elements = 512 * 1024;  //512 * 1024
     int base_iters = 32;
     return pingPongTest(t, true, true, num_elements, base_iters);
 }

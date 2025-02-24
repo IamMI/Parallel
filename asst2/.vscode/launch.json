@@ -1,0 +1,24 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug runtasks",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/part_b/runtasks", // 可执行文件的路径
+            "args": ["-n", "16", "mandelbrot_chunked"], // 如果需要传参，可以在这里添加，例如 ["arg1", "arg2"]
+            "stopAtEntry": false, // 是否在程序入口处停止，设为 true 会暂停在 main 函数开始
+            "cwd": "${workspaceFolder}", // 工作目录，通常是项目根目录
+            "environment": [], // 环境变量，可选
+            "externalConsole": false, // 是否使用外部终端，Windows 上可能需要设为 true
+            "MIMode": "gdb", // 使用 gdb 调试器（Linux/Mac），Windows 可改为 "lldb" 或 "gdb"
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ]
+}

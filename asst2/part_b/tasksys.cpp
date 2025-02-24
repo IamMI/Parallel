@@ -4,6 +4,8 @@
 #include <mutex>
 #include <iostream>
 #include <typeinfo>
+#include <vector>
+#include <algorithm>
 
 IRunnable::~IRunnable() {}
 
@@ -141,7 +143,9 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
     return "Parallel + Thread Pool + Sleep";
 }
 
-TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int num_threads): ITaskSystem(num_threads), m_max_threads{num_threads} {
+TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int num_threads): 
+    ITaskSystem(num_threads), m_max_threads{num_threads}
+{
     // Initialize threads pool
     for (int i = 0; i < this->m_max_threads; i++) {
         this->worker_pool.push_back(std::thread([this]() {
@@ -153,100 +157,145 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     this->stop = true;
     cv_work.notify_all();
+    
     for (auto& worker : this->worker_pool) {
         if (worker.joinable()) {
-            worker.join(); // 等待所有线程完成
+            worker.join(); 
         }
     }
-
-    // 释放所有任务上下文
-    for (auto& pair : this->task_contexts) {
-        delete pair;
+    
+    for (int index=0; index<this->m_num_contexts; index++) {
+        delete this->task_contexts[index];
     }
 }
 
 void TaskSystemParallelThreadPoolSleeping::worker() {
     while (true) {
-        std::unique_lock<std::mutex> lock(m_work);
-        auto wait_func = [this] { return this->stop || this->m_left_num > 0; };
-        cv_work.wait(lock, wait_func);
+        // At run time, worker would wait for a context to run, otherwise it sleeps.
+        // When a context is available, worker would fetch a context from runnable_contexts
+        // and run the context. After finishing the context, worker would notify the 
+        // context_thread to remove this context.
 
-        if (stop && m_left_num == 0) {
+        std::unique_lock<std::mutex> lock(m_work);
+        auto wait_func = [this] { return this->stop || \
+                                         static_cast<int>(this->runnable_contexts.size()) > 0; };        
+        this->cv_work.wait(lock, wait_func);
+
+        if (stop && static_cast<int>(this->runnable_contexts.size()) == 0) {
             break;
         }
 
-        int task_id = m_total_num - m_left_num;
-        m_left_num--;
-        lock.unlock();
+        // Fetch a runnable context from this->runnable_contexts
+        TaskContext* task_context = nullptr;
+        for (int index=0; index<static_cast<int>(this->runnable_contexts.size()); index++){
+            if (this->runnable_contexts[index]->m_left_tasks > 0){
+                task_context = this->runnable_contexts[index];
+                break;
+            }
+        }
+        if (task_context == nullptr) {
+            continue;
+        }
 
-        runner->runTask(task_id, m_total_num);
+        int taskId = task_context->m_num_tasks - task_context->m_left_tasks;
+        task_context->m_left_tasks --;
+        IRunnable* runner = task_context->m_runnable;
+        int m_num_tasks = task_context->m_num_tasks;
+
+        lock.unlock();
+        
+        runner->runTask(taskId, m_num_tasks);
         {
-            std::lock_guard<std::mutex> finish_lock(m_finish);
-            m_finished_num++;
-            if (m_finished_num == m_total_num) {
-                cv_finish.notify_one();
+            std::unique_lock<std::mutex> lock(task_context->m_mtx);
+            task_context->m_finish_tasks ++;
+            if (task_context->m_finish_tasks == task_context->m_num_tasks) {
+                {
+                    // Remove runnable context from this->runnable_contexts
+                    std::unique_lock<std::mutex> lock(this->m_work);
+                    this->runnable_contexts.erase(std::remove(this->runnable_contexts.begin(), this->runnable_contexts.end(), task_context), this->runnable_contexts.end());
+                }
+                task_context->is_finished = true;
+                task_context->m_cv.notify_all();        // Notify context_thread to remove this context
             }
         }
     }
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
-    runner = runnable;
-    m_finished_num = 0;
-    m_total_num = num_total_tasks;
+    // run function is similar with runAsyncWithDeps, but without dependencies.
+    // In the final, run has wait for the task_context to finish.
 
+    int cur_task_id = this->next_task_id.fetch_add(1);
+    TaskContext* task_context = new TaskContext(cur_task_id, {}, runnable, num_total_tasks);
+    this->task_contexts[cur_task_id] = task_context;
+    this->m_num_contexts ++;
+
+    // Add runnable context to this->runnable_contexts
     {
-        std::lock_guard<std::mutex> lock(m_work);
-        m_left_num = num_total_tasks;
+        std::unique_lock<std::mutex> lock(this->m_work);
+        this->runnable_contexts.push_back(task_context);
+        this->cv_work.notify_all();
     }
-
-    cv_work.notify_all();
-
-    std::unique_lock<std::mutex> lock(m_finish);
-    auto wait_func = [this](){return this->m_finished_num == this->m_total_num;};
-    cv_finish.wait(lock, wait_func);
+    // Wait for task_context to finish
+    {
+        std::unique_lock<std::mutex> lock(task_context->m_mtx);
+        task_context->m_cv.wait(lock, [task_context]() { return task_context->is_finished; });
+    }  
+    // // Remove runnable context from this->runnable_contexts
+    // {
+    //     std::unique_lock<std::mutex> lock(this->m_work);
+    //     this->runnable_contexts.erase(std::remove(this->runnable_contexts.begin(), this->runnable_contexts.end(), task_context), this->runnable_contexts.end());
+    // } 
 }
 
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
     const std::vector<TaskID>& deps) {
+    // At run time, runAsyncWithDeps would generate a new task id and a task_context to record
+    // metadata. Then, a context thread is pushed into this->context_pool, which responds for:
+    //      1. Wait util the deps finished
+    //      2. Push task context into this->runnable_contexts 
+    //      3. Notify worker threads to fetch and carry on
 
     int cur_task_id = this->next_task_id.fetch_add(1);
     TaskContext* task_context = new TaskContext(cur_task_id, deps, runnable, num_total_tasks);
-    this->task_contexts.push_back(task_context);
-    
+    this->task_contexts[cur_task_id] = task_context;    // Record
+    this->m_num_contexts ++;                            // Number of total contexts
 
     task_context->m_thread = std::thread([this, task_context]() {
+            // Waiting for deps
             TaskContext* task_deps = nullptr;
             if (task_context->m_deps.size() > 0){
                 for (auto& dep : task_context->m_deps){
-                    if (dep < static_cast<int>(this->task_contexts.size())) {
+                    {
                         task_deps = this->task_contexts[dep];
                         std::unique_lock<std::mutex> lock(task_deps->m_mtx);
                         task_deps->m_cv.wait(lock, [task_deps]() { return task_deps->is_finished; });
                     }
                 }
             }
-
+            // Add runnable context to this->runnable_contexts
             {
-                std::unique_lock<std::mutex> lock(this->m_tasks);
-                this->run(task_context->m_runnable, task_context->m_num_tasks);
-                task_context->is_finished = true;
-                task_context->m_cv.notify_all();
+                std::unique_lock<std::mutex> lock(this->m_work);
+                this->runnable_contexts.push_back(task_context);
+                this->cv_work.notify_all();
             }
     });
+    
     return cur_task_id;
 }
 
 
 
 void TaskSystemParallelThreadPoolSleeping::sync() { 
-    for (auto& context : this->task_contexts) {
+    for (int index=0; index< static_cast<int>(this->m_num_contexts); index++) {
+        TaskContext* context = this->task_contexts[index];
+
         std::unique_lock<std::mutex> lock(context->m_mtx);
-        
+
         context->m_cv.wait(lock, [context]() { return context->is_finished; });
-        
-        if(context->m_thread.joinable()) {
+
+        if (context->m_thread.joinable()) {
             context->m_thread.join();
         }
     }
